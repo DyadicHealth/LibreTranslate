@@ -1,16 +1,18 @@
 services:
   libretranslate:
     container_name: libretranslate
-    build:
-      context: .
-      dockerfile: ./docker/Dockerfile
-    restart: unless-stopped
+    image: libretranslate/libretranslate:latest
     ports:
       - "5000:5000"
-    ## Uncomment this for logging in docker compose logs
-    # tty: true
+    restart: unless-stopped
     healthcheck:
       test: ['CMD-SHELL', './venv/bin/python scripts/healthcheck.py']
+      interval: 10s
+      timeout: 4s
+      retries: 4
+      start_period: 5s
+    ## Uncomment this for logging in docker compose logs
+    # tty: true
     ## Uncomment above command and define your args if necessary
     # command: --ssl --ga-id MY-GA-ID --req-limit 100 --char-limit 500
     ## Uncomment this section and the libretranslate_api_keys volume if you want to backup your API keys

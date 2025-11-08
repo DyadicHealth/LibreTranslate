@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ['3.8', '3.9', '3.10']
+        python-version: ['3.8', '3.9', '3.10', '3.11', '3.12', '3.13']
 
     steps:
     - uses: actions/checkout@v4
@@ -31,6 +31,7 @@ jobs:
     - name: Install dependencies
       run: |
         pipx install hatch
+        pipx inject hatch click==8.2.1 --force
         hatch run locales
 
     - name: Test with pytest

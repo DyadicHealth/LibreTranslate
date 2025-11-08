@@ -173,11 +173,11 @@ def filter_unique(seq, extra):
 def detect_translatable(src_texts):
   if isinstance(src_texts, list):
     return any(detect_translatable(t) for t in src_texts)
-  
+
   for ch in src_texts:
     if not (ord(ch) in emojis):
       return True
-  
+
   # All emojis
   return False
 
@@ -190,7 +190,7 @@ def create_app(args):
     from libretranslate.language import load_languages
 
     swagger_url = args.url_prefix + "/docs"  # Swagger UI (w/o trailing '/')
-    api_url = args.url_prefix + "/spec"
+    api_url = "/spec"
 
     bp = Blueprint('Main app', __name__)
 
@@ -259,7 +259,7 @@ def create_app(args):
             return max(req_cost, int(math.ceil(getattr(request, 'duration', 0) / args.req_time_cost)))
           else:
             return req_cost
-        
+
         def get_limits_key_func():
           if args.api_keys:
             def func():
@@ -358,7 +358,7 @@ def create_app(args):
                         'alternatives': [],
                         'detectedLanguage': { 'confidence': 100, 'language': 'en' }
                       }), 200))
-                  
+
                   if (args.require_api_key_fingerprint
                     and key_missing):
                     if flood.fingerprint_mismatch(ip, get_fingerprint()):
@@ -435,7 +435,6 @@ def create_app(args):
 
         resp = make_response(render_template(
             "index.html",
-            gaId=args.ga_id,
             frontendTimeout=args.frontend_timeout,
             api_keys=args.api_keys,
             get_api_key_link=args.get_api_key_link,
@@ -470,7 +469,7 @@ def create_app(args):
           api_secret = secret.get_current_secret_js()
         else:
           api_secret = secret.get_bogus_secret_js()
-        
+
       response = Response(render_template("app.js.template",
             url_prefix=args.url_prefix,
             get_api_key_link=args.get_api_key_link,
@@ -490,18 +489,19 @@ def create_app(args):
     @limiter.exempt
     def langs():
         """
-        Retrieve list of supported languages
+        Get Supported Languages
         ---
         tags:
           - translate
         responses:
           200:
-            description: List of languages
+            description: List of supported languages
             schema:
               id: languages
               type: array
               items:
                 type: object
+                description: Supported language
                 properties:
                   code:
                     type: string
@@ -515,10 +515,32 @@ def create_app(args):
                       type: string
                     description: Supported target language codes
         """
-        return jsonify([{"code": model2iso(l.code), 
-                         "name": _lazy(l.name), 
+        return jsonify([{"code": model2iso(l.code),
+                         "name": _lazy(l.name),
                          "targets": model2iso(language_pairs.get(l.code, []))
                         } for l in languages])
+
+    @bp.get("/health")
+    @limiter.exempt
+    def health():
+        """
+        Health Check
+        ---
+        tags:
+          - misc
+        responses:
+          200:
+            description: Service is healthy
+            schema:
+              id: health-response
+              type: object
+              properties:
+                status:
+                  type: string
+                  description: Health status
+                  example: ok
+        """
+        return jsonify({"status": "ok"})
 
     # Add cors
     @bp.after_request
@@ -537,7 +559,7 @@ def create_app(args):
     @access_check
     def translate():
         """
-        Translate text from a language to another
+        Translate Text
         ---
         tags:
           - translate
@@ -558,7 +580,7 @@ def create_app(args):
               type: string
               example: en
             required: true
-            description: Source language code
+            description: Source language code or "auto" for auto detection
           - in: formData
             name: target
             schema:
@@ -585,7 +607,7 @@ def create_app(args):
               default: 0
               example: 3
             required: false
-            description: Preferred number of alternative translations 
+            description: Preferred number of alternative translations
           - in: formData
             name: api_key
             schema:
@@ -595,7 +617,7 @@ def create_app(args):
             description: API key
         responses:
           200:
-            description: Translated text
+            description: Translation
             schema:
               id: translate
               type: object
@@ -605,6 +627,47 @@ def create_app(args):
                     - type: string
                     - type: array
                   description: Translated text(s)
+                detectedLanguage:
+                  oneOf:
+                    - type: object
+                      properties:
+                        confidence:
+                          type: number
+                          format: float
+                          minimum: 0
+                          maximum: 100
+                          description: Confidence value
+                          example: 100
+                        language:
+                          type: string
+                          description: Language code
+                    - type: array
+                      items:
+                        type: object
+                        properties:
+                          confidence:
+                            type: number
+                            format: float
+                            minimum: 0
+                            maximum: 100
+                            description: Confidence value
+                            example: 100
+                          language:
+                            type: string
+                            description: Language code
+                alternatives:
+                  oneOf:
+                    - type: array
+                      items:
+                        type: string
+                    - type: array
+                      items:
+                        type: array
+                        items:
+                          type: string
+                  description: Alternative translations
+              required:
+                - translatedText
           400:
             description: Invalid request
             schema:
@@ -662,7 +725,7 @@ def create_app(args):
             abort(400, description=_("Invalid request: missing %(name)s parameter", name='source'))
         if not target_lang:
             abort(400, description=_("Invalid request: missing %(name)s parameter", name='target'))
-        
+
         try:
             num_alternatives = max(0, int(num_alternatives))
         except ValueError:
@@ -701,7 +764,7 @@ def create_app(args):
 
         if batch:
             request.req_cost = max(1, len(q))
-          
+
         translatable = detect_translatable(src_texts)
         if translatable:
           if source_lang == "auto":
@@ -711,7 +774,7 @@ def create_app(args):
               detected_src_lang = {"confidence": 100.0, "language": source_lang}
         else:
           detected_src_lang = {"confidence": 0.0, "language": "en"}
-        
+
         src_lang = next(iter([l for l in languages if l.code == detected_src_lang["language"]]), None)
 
         if src_lang is None:
@@ -748,10 +811,10 @@ def create_app(args):
                     else:
                       translated_text = text # Cannot translate, send the original text back
                       alternatives = []
-                    
+
                     batch_results.append(translated_text)
                     batch_alternatives.append(alternatives)
-                
+
                 result = {"translatedText": batch_results}
 
                 if source_lang == "auto":
@@ -776,7 +839,7 @@ def create_app(args):
                 else:
                   translated_text = q # Cannot translate, send the original text back
                   alternatives = []
-                
+
                 result = {"translatedText": translated_text}
 
                 if source_lang == "auto":
@@ -793,7 +856,7 @@ def create_app(args):
     @access_check
     def translate_file():
         """
-        Translate file from a language to another
+        Translate a File
         ---
         tags:
           - translate
@@ -811,7 +874,7 @@ def create_app(args):
               type: string
               example: en
             required: true
-            description: Source language code
+            description: Source language code  or "auto" for auto detection
           - in: formData
             name: target
             schema:
@@ -968,7 +1031,7 @@ def create_app(args):
     @access_check
     def detect():
         """
-        Detect the language of a single text
+        Detect Language of Text
         ---
         tags:
           - translate
@@ -998,7 +1061,7 @@ def create_app(args):
                 properties:
                   confidence:
                     type: number
-                    format: integer
+                    format: float
                     minimum: 0
                     maximum: 100
                     description: Confidence value
@@ -1059,10 +1122,10 @@ def create_app(args):
     @limiter.exempt
     def frontend_settings():
         """
-        Retrieve frontend specific settings
+        Retrieve Frontend Settings
         ---
         tags:
-          - frontend
+          - misc
         responses:
           200:
             description: frontend settings
@@ -1139,10 +1202,10 @@ def create_app(args):
     @bp.post("/suggest")
     def suggest():
         """
-        Submit a suggestion to improve a translation
+        Submit a Suggestion to Improve a Translation
         ---
         tags:
-          - feedback
+          - misc
         parameters:
           - in: formData
             name: q
@@ -1228,16 +1291,17 @@ def create_app(args):
 
     if args.debug:
         app.config["TEMPLATES_AUTO_RELOAD"] = True
-    if args.url_prefix:
-        app.register_blueprint(bp, url_prefix=args.url_prefix)
-    else:
-        app.register_blueprint(bp)
+
+    app.register_blueprint(bp)
 
     limiter.init_app(app)
 
     swag = swagger(app)
+    swag["basePath"] = args.url_prefix if args.url_prefix != "" else "/"
     swag["info"]["version"] = get_version()
     swag["info"]["title"] = "LibreTranslate"
+    swag["info"]["description"] = "Free and Open Source Machine Translation API."
+    swag["info"]["license"] = {"name": "AGPL-3.0"}
 
     @app.route(api_url)
     @limiter.exempt
@@ -1257,10 +1321,9 @@ def create_app(args):
     app.jinja_env.globals.update(_e=gettext_escaped, _h=gettext_html)
 
     # Call factory function to create our blueprint
-    swaggerui_blueprint = get_swaggerui_blueprint(swagger_url, api_url)
-    if args.url_prefix:
-        app.register_blueprint(swaggerui_blueprint, url_prefix=swagger_url)
-    else:
-        app.register_blueprint(swaggerui_blueprint)
+    # The Blueprint is not using url_for which means the middleware does not work properly and we need to manually fix things
+    swaggerui_blueprint = get_swaggerui_blueprint(swagger_url, args.url_prefix + api_url)
+    swaggerui_blueprint.url_prefix = "/docs"
+    app.register_blueprint(swaggerui_blueprint)
 
     return app
